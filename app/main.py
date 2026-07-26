@@ -2,6 +2,7 @@ import logging
 
 from fastapi import FastAPI, Request, Response, WebSocket
 
+from app.agent_api import router as agent_router
 from app.config import settings
 from app.db import init_db
 from app.rail.mock_rail import router as rail_router
@@ -13,6 +14,7 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="AWAAZ-PAY")
 app.include_router(rail_router)
+app.include_router(agent_router)
 
 
 @app.on_event("startup")
