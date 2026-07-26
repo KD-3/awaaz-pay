@@ -1,6 +1,8 @@
 import logging
 
 from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.agent_api import router as agent_router
 from app.config import settings
@@ -15,6 +17,15 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="AWAAZ-PAY")
 app.include_router(rail_router)
 app.include_router(agent_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def log_validation_errors(request: Request, exc: RequestValidationError) -> JSONResponse:
+    body = await request.body()
+    logging.getLogger("awaazpay.main").warning(
+        "422 on %s: body=%s errors=%s", request.url.path, body.decode("utf-8", "replace"), exc.errors()
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 @app.on_event("startup")

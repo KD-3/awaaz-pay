@@ -19,6 +19,28 @@ _ONES = [
     "nabbe", "ikyanave", "banave", "tiranave", "chauranave", "pachanave", "chhiyanave", "sattanave", "atthanave", "ninyanave",
 ]
 
+# Devanagari number words 0-99, index-aligned with _ONES. Sarvam's STT
+# transcribes Hindi natively in Devanagari (confirmed on a live agent call:
+# {"amount_phrase": "सौ रुपए"}), not the Latin transliteration this module
+# used to assume exclusively - that mismatch silently parsed every Devanagari
+# amount as 0. A naive character-by-character transliteration (see
+# app/core/ledger.py's normalize_hypothesis, built for fuzzy matching where
+# it's fine) drops implicit vowels ("हज़ार" -> "hjaar" instead of "hazaar")
+# and isn't reliable for exact dictionary lookups, so these are listed
+# directly instead of transliterating on the fly.
+_ONES_DEVANAGARI = [
+    "शून्य", "एक", "दो", "तीन", "चार", "पांच", "छह", "सात", "आठ", "नौ",
+    "दस", "ग्यारह", "बारह", "तेरह", "चौदह", "पंद्रह", "सोलह", "सत्रह", "अठारह", "उन्नीस",
+    "बीस", "इक्कीस", "बाईस", "तेईस", "चौबीस", "पच्चीस", "छब्बीस", "सत्ताईस", "अट्ठाईस", "उनतीस",
+    "तीस", "इकतीस", "बत्तीस", "तैंतीस", "चौंतीस", "पैंतीस", "छत्तीस", "सैंतीस", "अड़तीस", "उनतालीस",
+    "चालीस", "इकतालीस", "बयालीस", "तैंतालीस", "चवालीस", "पैंतालीस", "छियालीस", "सैंतालीस", "अड़तालीस", "उनचास",
+    "पचास", "इक्यावन", "बावन", "तिरपन", "चौवन", "पचपन", "छप्पन", "सत्तावन", "अट्ठावन", "उनसठ",
+    "साठ", "इकसठ", "बासठ", "तिरसठ", "चौंसठ", "पैंसठ", "छियासठ", "सड़सठ", "अड़सठ", "उनहत्तर",
+    "सत्तर", "इकहत्तर", "बहत्तर", "तिहत्तर", "चौहत्तर", "पचहत्तर", "छिहत्तर", "सतहत्तर", "अठहत्तर", "उन्नासी",
+    "अस्सी", "इक्यासी", "बयासी", "तिरासी", "चौरासी", "पचासी", "छियासी", "सत्तासी", "अट्ठासी", "नवासी",
+    "नब्बे", "इक्यानवे", "बानवे", "तिरानवे", "चौरानवे", "पंचानवे", "छियानवे", "सत्तानवे", "अट्ठानवे", "निन्यानवे",
+]
+
 # Alternate spellings accepted when parsing (canonical spelling above is used for output).
 _ALIASES = {
     "char": 4, "chaar": 4,
@@ -34,24 +56,34 @@ _ALIASES = {
     "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
     "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
     "eighty": 80, "ninety": 90,
+    # Common Devanagari spelling variants
+    "पाँच": 5, "छः": 6,
 }
 
 _WORD_VALUES = {word: value for value, word in enumerate(_ONES)}
+_WORD_VALUES.update({word: value for value, word in enumerate(_ONES_DEVANAGARI)})
 _WORD_VALUES.update(_ALIASES)
 
 _MULTIPLIERS = {
     "sau": 100,
     "hundred": 100,
+    "सौ": 100,
     "hazaar": 1000,
     "hazar": 1000,
     "thousand": 1000,
     "k": 1000,
+    "हज़ार": 1000,
+    "हजार": 1000,
     "lakh": 1000_00,
     "lac": 1000_00,
+    "लाख": 1000_00,
     "crore": 1_00_00_000,
+    "करोड़": 1_00_00_000,
+    "करोड": 1_00_00_000,
 }
 
-_TOKEN_RE = re.compile(r"\d+|[a-z]+")
+# ऀ-ॿ covers the Devanagari Unicode block.
+_TOKEN_RE = re.compile(r"\d+|[a-z]+|[ऀ-ॿ]+")
 
 
 def _ones_word(n: int) -> str:

@@ -12,6 +12,7 @@ Pydantic model fields here use `typing.Optional`/`typing.List` rather than the
 `X | None` / `list[X]` syntax - pydantic evaluates annotations at runtime and
 that syntax isn't supported on the Python 3.9 interpreter this runs on.
 """
+import logging
 from typing import Optional
 
 from fastapi import APIRouter
@@ -22,6 +23,8 @@ from app.core.gate import gate_amount
 from app.core.numerals import format_amount_for_speech, parse_spoken_amount
 from app.core.state_machine import Payee
 from app.db import get_connection
+
+logger = logging.getLogger("awaazpay.agent_api")
 
 router = APIRouter(prefix="/agent", tags=["agent-tools"])
 
@@ -58,6 +61,7 @@ def _spoken_list(names: list) -> str:
 
 @router.post("/resolve_payee", response_model=ResolvePayeeResponse)
 def resolve_payee(req: ResolvePayeeRequest) -> ResolvePayeeResponse:
+    logger.info("resolve_payee REQUEST: caller_id=%r payee_phrase=%r", req.caller_id, req.payee_phrase)
     conn = get_connection()
     try:
         payees = _load_payees(conn, req.caller_id)
@@ -67,14 +71,18 @@ def resolve_payee(req: ResolvePayeeRequest) -> ResolvePayeeResponse:
         conn.close()
 
     if resolved is None:
-        return ResolvePayeeResponse(resolved=False, candidates_spoken=_spoken_list([p.display_name for p in payees]))
-    return ResolvePayeeResponse(
-        resolved=True,
-        payee_id=resolved.payee_id,
-        name=resolved.display_name,
-        masked_account=resolved.masked_account,
-        ledger_hit=ledger_hit,
-    )
+        response = ResolvePayeeResponse(resolved=False, candidates_spoken=_spoken_list([p.display_name for p in payees]))
+    else:
+        response = ResolvePayeeResponse(
+            resolved=True,
+            payee_id=resolved.payee_id,
+            name=resolved.display_name,
+            masked_account=resolved.masked_account,
+            ledger_hit=ledger_hit,
+        )
+    logger.info("resolve_payee RESPONSE: %r (payees on file for this caller_id: %s)",
+                response, [p.display_name for p in payees])
+    return response
 
 
 class RecordCorrectionRequest(BaseModel):
