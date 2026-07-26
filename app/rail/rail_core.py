@@ -4,9 +4,14 @@ these directly in-process rather than looping back over HTTP)."""
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+
+from app import razorpay_client
+
+logger = logging.getLogger("awaazpay.rail")
 
 PENDING_DELAY_SECONDS = 2.0
 
@@ -36,12 +41,20 @@ def create_transfer(
     if existing is not None:
         return existing["txn_id"], existing["status"]
 
-    if conn.execute(
-        "SELECT 1 FROM payees WHERE payee_id = ? AND caller_id = ?", (payee_id, caller_id)
-    ).fetchone() is None:
+    payee_row = conn.execute(
+        "SELECT display_name FROM payees WHERE payee_id = ? AND caller_id = ?", (payee_id, caller_id)
+    ).fetchone()
+    if payee_row is None:
         raise PayeeNotFound(payee_id)
 
-    txn_id = f"txn_{uuid.uuid4().hex[:12]}"
+    try:
+        txn_id = razorpay_client.create_order(
+            amount_paise, receipt=idempotency_key, notes={"caller_id": caller_id, "payee": payee_row["display_name"]}
+        )
+    except Exception:
+        logger.exception("Razorpay order creation failed, falling back to a local txn_id")
+        txn_id = f"txn_{uuid.uuid4().hex[:12]}"
+
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """INSERT INTO transfers (txn_id, call_sid, caller_id, payee_id, amount_paise, status, committed_at)

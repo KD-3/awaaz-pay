@@ -19,6 +19,9 @@ class Settings:
     sarvam_chat_url: str = os.getenv("SARVAM_CHAT_URL", "https://api.sarvam.ai/v1/chat/completions")
     sarvam_slot_model: str = os.getenv("SARVAM_SLOT_MODEL", "sarvam-30b")
 
+    razorpay_key_id: str = os.getenv("RAZORPAY_KEY_ID", "")
+    razorpay_key_secret: str = os.getenv("RAZORPAY_KEY_SECRET", "")
+
     db_path: str = os.getenv("DB_PATH", "./awaazpay.db")
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "")
     confidence_gate_threshold: float = float(os.getenv("CONFIDENCE_GATE_THRESHOLD", "0.75"))
