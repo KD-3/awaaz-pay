@@ -12,7 +12,7 @@ Pydantic model fields here use `typing.Optional`/`typing.List` rather than the
 `X | None` / `list[X]` syntax - pydantic evaluates annotations at runtime and
 that syntax isn't supported on the Python 3.9 interpreter this runs on.
 """
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -45,7 +45,15 @@ class ResolvePayeeResponse(BaseModel):
     name: Optional[str] = None
     masked_account: Optional[str] = None
     ledger_hit: bool = False
-    candidate_names: List[str] = []
+    candidates_spoken: str = ""  # ready-to-read-aloud enumeration, e.g. "Sunita, Ramesh, ya Manoj"
+
+
+def _spoken_list(names: list) -> str:
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + f", ya {names[-1]}"
 
 
 @router.post("/resolve_payee", response_model=ResolvePayeeResponse)
@@ -59,7 +67,7 @@ def resolve_payee(req: ResolvePayeeRequest) -> ResolvePayeeResponse:
         conn.close()
 
     if resolved is None:
-        return ResolvePayeeResponse(resolved=False, candidate_names=[p.display_name for p in payees])
+        return ResolvePayeeResponse(resolved=False, candidates_spoken=_spoken_list([p.display_name for p in payees]))
     return ResolvePayeeResponse(
         resolved=True,
         payee_id=resolved.payee_id,
@@ -102,7 +110,8 @@ class CheckAmountResponse(BaseModel):
     passed: bool
     words_form: str
     digits_form: str
-    candidate_words: List[str] = []
+    candidate_word_a: str = ""
+    candidate_word_b: str = ""
 
 
 @router.post("/check_amount", response_model=CheckAmountResponse)
@@ -118,11 +127,12 @@ def check_amount(req: CheckAmountRequest) -> CheckAmountResponse:
     gate = gate_amount(amount_paise, second_parse_paise=second_paise)
     words, digits = format_amount_for_speech(amount_paise)
 
-    candidate_words = []
+    candidate_word_a = candidate_word_b = ""
     if not gate.passed and gate.candidates:
-        candidate_words = [format_amount_for_speech(p)[0] for p in gate.candidates]
+        candidate_word_a = format_amount_for_speech(gate.candidates[0])[0]
+        candidate_word_b = format_amount_for_speech(gate.candidates[1])[0]
 
     return CheckAmountResponse(
         amount_paise=amount_paise, passed=gate.passed, words_form=words, digits_form=digits,
-        candidate_words=candidate_words,
+        candidate_word_a=candidate_word_a, candidate_word_b=candidate_word_b,
     )

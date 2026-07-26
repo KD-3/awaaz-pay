@@ -18,8 +18,19 @@ curl -X POST https://wales-filters-baltimore-innocent.trycloudflare.com/agent/re
   -H "Content-Type: application/json" \
   -d '{"caller_id": "demo-caller-1", "payee_phrase": "{{payee_phrase}}"}'
 ```
-What the agent gets back: `resolved={{resolved}}, name={{name}}, masked_account={{masked_account}}, ledger_hit={{ledger_hit}}, candidates={{candidate_names}}`
-Save into variables: `resolved`, `payee_id`, `name`, `masked_account`, `ledger_hit`, `candidate_names`
+What the agent gets back: `resolved={{resolved}}, name={{name}}, masked_account={{masked_account}}, ledger_hit={{ledger_hit}}, candidates_spoken={{candidates_spoken}}`
+
+Save into variables (all top-level fields, no array indexing needed - `candidates_spoken` is a single ready-to-read string like "Sunita, Ramesh, ya Manoj", not a list):
+| path | variable | type |
+|---|---|---|
+| `resolved` | `resolved` | Boolean |
+| `payee_id` | `payee_id` | String |
+| `name` | `name` | String |
+| `masked_account` | `masked_account` | String |
+| `ledger_hit` | `ledger_hit` | Boolean |
+| `candidates_spoken` | `candidates_spoken` | String |
+
+When creating each variable: **Variable Type = Output variables**. The Data Type is as in the table above. For "Extraction Prompt," since these values come from the tool's response mapping (not extracted from the caller's speech), put something like: `Filled automatically from the resolve_payee tool response - not extracted from conversation.`
 
 ### 2. `record_correction`
 Description: "Saves which payee the caller actually meant, so the same mis-hearing resolves instantly next call."
@@ -42,8 +53,17 @@ curl -X POST https://wales-filters-baltimore-innocent.trycloudflare.com/agent/ch
   -H "Content-Type: application/json" \
   -d '{"amount_phrase": "{{amount_phrase}}", "language": "hi"}'
 ```
-What the agent gets back: `passed={{passed}}, words_form={{words_form}}, digits_form={{digits_form}}, candidates={{candidate_words}}`
-Save into variables: `amount_paise`, `passed`, `words_form`, `digits_form`, `candidate_words`
+What the agent gets back: `passed={{passed}}, words_form={{words_form}}, digits_form={{digits_form}}, candidate_word_a={{candidate_word_a}}, candidate_word_b={{candidate_word_b}}`
+
+Save into variables (all plain strings/booleans, `candidate_word_a`/`candidate_word_b` are empty strings when `passed` is true):
+| path | variable | type |
+|---|---|---|
+| `amount_paise` | `amount_paise` | Number |
+| `passed` | `passed` | Boolean |
+| `words_form` | `words_form` | String |
+| `digits_form` | `digits_form` | String |
+| `candidate_word_a` | `candidate_word_a` | String |
+| `candidate_word_b` | `candidate_word_b` | String |
 
 ### 4. `commit_transfer`
 Description: "Actually sends the money. Only call this after the caller has confirmed both the payee and the amount."
@@ -77,7 +97,7 @@ language.
 → AWAIT_PAYEE
 
 **AWAIT_PAYEE**
-- Instructions: "Ask who the money is for if not already said. When the caller names someone, call `resolve_payee` with exactly what they said as `payee_phrase`. If `resolved` is true, go to CONFIRM_PAYEE. If false, read the `candidate_names` back as a choice (e.g. 'Aapke teen payees hain: X, Y, ya Z?') and stay in this state."
+- Instructions: "Ask who the money is for if not already said. When the caller names someone, call `resolve_payee` with exactly what they said as `payee_phrase`. If `resolved` is true, go to CONFIRM_PAYEE. If false, say 'Aapke teen payees hain: {candidates_spoken}?' and stay in this state."
 - Tools: resolve_payee
 → CONFIRM_PAYEE, AWAIT_PAYEE
 
@@ -87,7 +107,7 @@ language.
 → AWAIT_AMOUNT, AWAIT_PAYEE
 
 **AWAIT_AMOUNT**
-- Instructions: "Ask how much to send if not already said. Call `check_amount` with exactly what the caller said as `amount_phrase`. If `passed` is true, go to CONFIRM_AMOUNT. If false, ask 'Maine theek se nahi suna. Aapne {candidate_words[0]} kaha ya {candidate_words[1]}?' and stay here."
+- Instructions: "Ask how much to send if not already said. Call `check_amount` with exactly what the caller said as `amount_phrase`. If `passed` is true, go to CONFIRM_AMOUNT. If false, ask 'Maine theek se nahi suna. Aapne {candidate_word_a} kaha ya {candidate_word_b}?' and stay here."
 - Tools: check_amount
 → CONFIRM_AMOUNT, AWAIT_AMOUNT
 
