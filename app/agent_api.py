@@ -11,11 +11,21 @@ tunnel URL only Sarvam's agent knows, not for anything real.
 Pydantic model fields here use `typing.Optional`/`typing.List` rather than the
 `X | None` / `list[X]` syntax - pydantic evaluates annotations at runtime and
 that syntax isn't supported on the Python 3.9 interpreter this runs on.
+
+Every endpoint takes the raw Request and parses the body manually rather than
+letting FastAPI bind straight to a Pydantic model. A live Playground call
+showed the agent occasionally invoking a tool with a completely empty body -
+not `{}`, zero bytes - which FastAPI rejects with a 422 before the model's own
+field defaults ever get a chance to apply. A 422 here likely confuses the
+agent more than a graceful "nothing resolved" response that its own
+narrowed-re-ask instructions already handle, so every field is defaulted and
+every body is parsed defensively.
 """
+import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.core import ledger
@@ -29,6 +39,18 @@ logger = logging.getLogger("awaazpay.agent_api")
 router = APIRouter(prefix="/agent", tags=["agent-tools"])
 
 
+async def _parse_body(request: Request) -> dict:
+    raw = await request.body()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Non-JSON body on %s: %r", request.url.path, raw[:500])
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _load_payees(conn, caller_id):
     rows = conn.execute(
         "SELECT payee_id, display_name, masked_account FROM payees WHERE caller_id = ?",
@@ -38,8 +60,8 @@ def _load_payees(conn, caller_id):
 
 
 class ResolvePayeeRequest(BaseModel):
-    caller_id: str
-    payee_phrase: str
+    caller_id: str = "demo-caller-1"
+    payee_phrase: str = ""
 
 
 class ResolvePayeeResponse(BaseModel):
@@ -60,7 +82,9 @@ def _spoken_list(names: list) -> str:
 
 
 @router.post("/resolve_payee", response_model=ResolvePayeeResponse)
-def resolve_payee(req: ResolvePayeeRequest) -> ResolvePayeeResponse:
+async def resolve_payee(request: Request) -> ResolvePayeeResponse:
+    body = await _parse_body(request)
+    req = ResolvePayeeRequest(**body)
     logger.info("resolve_payee REQUEST: caller_id=%r payee_phrase=%r", req.caller_id, req.payee_phrase)
     conn = get_connection()
     try:
@@ -86,18 +110,22 @@ def resolve_payee(req: ResolvePayeeRequest) -> ResolvePayeeResponse:
 
 
 class RecordCorrectionRequest(BaseModel):
-    caller_id: str
-    heard_text: str
-    corrected_to: str
-    resolved_id: str
+    caller_id: str = "demo-caller-1"
+    heard_text: str = ""
+    corrected_to: str = ""
+    resolved_id: str = ""
 
 
 @router.post("/record_correction")
-def record_correction(req: RecordCorrectionRequest) -> dict:
+async def record_correction(request: Request) -> dict:
     """Call after the caller confirms who they actually meant, whether that's
     a fresh direct match or a correction following a narrowed re-ask (§9.1
     step 4). Writes the ledger entry that makes the next call's identical
     mis-hear resolve first-try."""
+    body = await _parse_body(request)
+    req = RecordCorrectionRequest(**body)
+    if not req.heard_text or not req.corrected_to or not req.resolved_id:
+        return {"ok": False, "reason": "missing required fields, nothing recorded"}
     conn = get_connection()
     try:
         ledger.record_correction(conn, req.caller_id, "payee", req.heard_text, req.corrected_to, req.resolved_id)
@@ -108,7 +136,7 @@ def record_correction(req: RecordCorrectionRequest) -> dict:
 
 
 class CheckAmountRequest(BaseModel):
-    amount_phrase: str
+    amount_phrase: str = ""
     language: str = "hi"
     second_amount_phrase: Optional[str] = None
 
@@ -123,11 +151,14 @@ class CheckAmountResponse(BaseModel):
 
 
 @router.post("/check_amount", response_model=CheckAmountResponse)
-def check_amount(req: CheckAmountRequest) -> CheckAmountResponse:
+async def check_amount(request: Request) -> CheckAmountResponse:
     """Amount parsing and the confidence gate are both deterministic Python
     (§8.4, §10) - the agent passes the raw spoken phrase, never a
     pre-parsed number, so this function is the only thing that decides what
     the amount actually is and whether it's trustworthy enough to read back."""
+    body = await _parse_body(request)
+    req = CheckAmountRequest(**body)
+    logger.info("check_amount REQUEST: amount_phrase=%r", req.amount_phrase)
     amount_paise = parse_spoken_amount(req.amount_phrase, req.language)
     second_paise = (
         parse_spoken_amount(req.second_amount_phrase, req.language) if req.second_amount_phrase else None
@@ -140,7 +171,9 @@ def check_amount(req: CheckAmountRequest) -> CheckAmountResponse:
         candidate_word_a = format_amount_for_speech(gate.candidates[0])[0]
         candidate_word_b = format_amount_for_speech(gate.candidates[1])[0]
 
-    return CheckAmountResponse(
+    response = CheckAmountResponse(
         amount_paise=amount_paise, passed=gate.passed, words_form=words, digits_form=digits,
         candidate_word_a=candidate_word_a, candidate_word_b=candidate_word_b,
     )
+    logger.info("check_amount RESPONSE: %r", response)
+    return response
